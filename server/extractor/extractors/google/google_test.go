@@ -449,6 +449,41 @@ func TestPreviewRendersResults(t *testing.T) {
 	}
 }
 
+func TestPreviewRendersAnswer(t *testing.T) {
+	e := keepAnswerExtractor(t)
+	response, decision, err := e.Preview(&document.Document{URL: searchURL, HTML: answerPage}).Unpack()
+	if decision != sdk.ExtractorSuccess {
+		t.Fatalf("Preview decision = %v (%v), want success", decision, err)
+	}
+	content := response.Content
+	if !strings.Contains(content, "a search engine displays after a query is submitted") {
+		t.Errorf("preview misses the answer: %q", content)
+	}
+	if !strings.Contains(content, `<a href="https://github.com/asciimoo/hister">GitHub - asciimoo/hister</a>`) {
+		t.Errorf("preview misses the linked title: %q", content)
+	}
+	if strings.Contains(content, "AI Mode replied:") {
+		t.Errorf("preview contains the interface label: %q", content)
+	}
+	if strings.Index(content, "a search engine displays") > strings.Index(content, "<ol>") {
+		t.Errorf("preview renders the answer below the results: %q", content)
+	}
+}
+
+func TestPreviewRendersAnswerWithoutResults(t *testing.T) {
+	e := keepAnswerExtractor(t)
+	response, decision, err := e.Preview(&document.Document{URL: searchURL, HTML: answerOnlyPage}).Unpack()
+	if decision != sdk.ExtractorSuccess {
+		t.Fatalf("Preview decision = %v (%v), want success", decision, err)
+	}
+	if !strings.Contains(response.Content, "a search engine displays after a query is submitted") {
+		t.Errorf("preview misses the answer: %q", response.Content)
+	}
+	if strings.Contains(response.Content, "<ol>") {
+		t.Errorf("preview renders an empty result list: %q", response.Content)
+	}
+}
+
 func TestSearchQueryFallbacks(t *testing.T) {
 	tests := []struct {
 		name string

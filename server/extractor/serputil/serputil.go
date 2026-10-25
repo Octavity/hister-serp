@@ -211,9 +211,15 @@ func Documents(results []Result, owner uint, metadataType, query string, maxResu
 	return docs
 }
 
-// Preview renders a sanitized list of results for the given engine.
+// Preview renders parsed search results as an ordered list. An answer, when
+// present, is rendered above the list because it is the page's main content.
 func Preview(label, query string, results []Result) sdk.PreviewResult {
-	if len(results) == 0 {
+	return PreviewWithAnswer(label, query, "", results)
+}
+
+// PreviewWithAnswer renders an optional answer above the parsed search results.
+func PreviewWithAnswer(label, query, answer string, results []Result) sdk.PreviewResult {
+	if len(results) == 0 && answer == "" {
 		return sdk.PreviewFallback(errors.New("no search results"))
 	}
 	var b strings.Builder
@@ -223,7 +229,16 @@ func Preview(label, query string, results []Result) sdk.PreviewResult {
 	} else {
 		fmt.Fprintf(&b, "%s search results", stdhtml.EscapeString(label))
 	}
-	b.WriteString("</h2><ol>")
+	b.WriteString("</h2>")
+	if answer != "" {
+		b.WriteString("<p>")
+		b.WriteString(stdhtml.EscapeString(answer))
+		b.WriteString("</p>")
+	}
+	if len(results) == 0 {
+		return sdk.Previewed(sdk.PreviewResponse{Content: sanitizer.SanitizeHTML(b.String())})
+	}
+	b.WriteString("<ol>")
 	for _, result := range results {
 		fmt.Fprintf(&b, `<li><p><a href="%s">%s</a></p>`,
 			stdhtml.EscapeString(result.URL), stdhtml.EscapeString(result.Title))

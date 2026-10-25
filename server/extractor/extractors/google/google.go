@@ -146,11 +146,12 @@ func (e *GoogleExtractor) Preview(d *sdk.Document) sdk.PreviewResult {
 	if err != nil {
 		return sdk.PreviewFallback(err)
 	}
-	results := parseResults(doc, d.URL)
-	if len(results) == 0 {
-		return sdk.PreviewFallback(errors.New("no google search results found"))
+	answer := ""
+	if e.keepAnswer() {
+		answer = answerText(doc)
 	}
-	return serputil.Preview("Google", searchQuery(doc, d.URL), serputil.Limit(results, e.maxResults()))
+	results := serputil.Limit(parseResults(doc, d.URL), e.maxResults())
+	return serputil.PreviewWithAnswer("Google", searchQuery(doc, d.URL), answer, results)
 }
 
 // answerText returns the text of the AI Overview answer on a result page, with
