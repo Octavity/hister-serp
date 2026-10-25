@@ -106,7 +106,10 @@ func runLiveExtractorCase(
 	extractResult := candidate.Extract(direct)
 	decision, extractErr := extractResult.Decision(), extractResult.Err()
 	wantDecision, _ := parseLiveDecision(testCase.ExtractDecision, sdk.ExtractorSuccess)
-	if extractErr != nil {
+	// A fallback may carry a diagnostic error (see sdk.ExtractFallback): the
+	// chain logs it and hands the document to the next extractor, so it is
+	// only a failure when the extractor claims success.
+	if extractErr != nil && decision != sdk.ExtractorFallback {
 		t.Errorf("direct extraction phase: %s returned %v", candidate.Name(), extractErr)
 	}
 	if decision != wantDecision {
@@ -128,7 +131,7 @@ func runLiveExtractorCase(
 		response, decision, previewErr := previewResult.Response(), previewResult.Decision(), previewResult.Err()
 		preview = response.Content
 		wantPreviewDecision, _ := parseLiveDecision(testCase.Expect.PreviewDecision, sdk.ExtractorSuccess)
-		if previewErr != nil {
+		if previewErr != nil && decision != sdk.ExtractorFallback {
 			t.Errorf("preview phase: %s returned %v", candidate.Name(), previewErr)
 		}
 		if decision != wantPreviewDecision {

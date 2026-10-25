@@ -12,9 +12,11 @@ import (
 	"github.com/asciimoo/hister/server/extractor/extractors/bluesky"
 	"github.com/asciimoo/hister/server/extractor/extractors/chatgpt"
 	"github.com/asciimoo/hister/server/extractor/extractors/discourse"
+	"github.com/asciimoo/hister/server/extractor/extractors/duckduckgo"
 	"github.com/asciimoo/hister/server/extractor/extractors/embeddedvideo"
 	"github.com/asciimoo/hister/server/extractor/extractors/github"
 	"github.com/asciimoo/hister/server/extractor/extractors/godoc"
+	"github.com/asciimoo/hister/server/extractor/extractors/google"
 	"github.com/asciimoo/hister/server/extractor/extractors/hackernews"
 	"github.com/asciimoo/hister/server/extractor/extractors/jsonld"
 	"github.com/asciimoo/hister/server/extractor/extractors/lobsters"
@@ -73,6 +75,8 @@ func DefaultExtractors() []Extractor {
 		&notion.NotionExtractor{},
 		&ytdlp.YtdlpExtractor{},
 		&chatgpt.ChatGPTExtractor{},
+		&google.GoogleExtractor{},
+		&duckduckgo.DuckDuckGoExtractor{},
 		&readabilityExtractor{},
 		&basicExtractor{},
 	}
