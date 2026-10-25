@@ -398,6 +398,43 @@ unsupported media content is ignored.
 `https://chatgpt.com/g/<gpt-id>/c/<conversation-id>` custom GPT conversation URLs
 (including `www.chatgpt.com`).
 
+### `google`
+
+Indexes the organic results of a Google search page as one document per result.
+Each result is searchable by its title, snippet, and site right after the
+search, without visiting it. Advertisements, Google-internal links, and duplicate
+results are ignored. The search page itself is never indexed: a page that yields
+no parseable result, such as a JavaScript shell, a consent screen, or an empty
+search, is dropped instead of being stored as boilerplate. The one exception is
+the opt-in `keep_answer` option, which keeps the AI Overview answer as the
+page's own document. A result that points to an already indexed page keeps the
+richer existing document.
+
+Current result pages reference results through opaque `/goto?url=` tokens that
+carry no readable target. The extractor rebuilds the address from the URL text
+Google displays under the title, so a result whose path is truncated in that
+display is indexed at the address shown. Links that carry no displayed address
+are skipped rather than stored as Google URLs. Pages served without JavaScript
+wrap result links in a `/url?q=` redirect instead, which is unwrapped.
+
+**Matches:** `/search` pages on Google domains such as `google.com`, `google.de`,
+or `google.co.uk`. Only that path is matched, so other Google properties such as
+Maps, Docs, or Drive are left to the generic extractors.
+
+Google's robots.txt disallows `/search`, so such pages reach hister when they are
+submitted from the browser extension rather than crawled.
+
+**Options:**
+
+- `max_results` (int, default `20`): maximum number of results recorded per
+  search page.
+- `keep_answer` (bool, default `false`): store the AI Overview answer as the
+  search page's own document. Unlike the interface around it, the answer does
+  not exist anywhere else, so it can be worth keeping. Only pages that carry an
+  answer are stored this way; a page without one is still dropped. The stored
+  text starts at the answer, without the interface label, and the page is marked
+  with `type: google_answer` and the search `query` metadata.
+
 ### `readability`
 
 Generic article extractor using the

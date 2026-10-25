@@ -346,6 +346,19 @@ cases:
         - Big Buck Bunny
       min_preview_length: 100
 
+  # Google's robots.txt disallows /search and its JavaScript shell is useless to
+  # an HTTP client, so this case only asserts URL matching plus a clean fallback
+  # on markup without results. Result parsing is covered by the unit tests.
+  - name: google_search_url_match_only
+    url: https://www.google.com/search?q=hister
+    fetch: false
+    extractor: Google
+    timeout: 10
+    run_chain: false
+    extract_decision: fallback
+    expect:
+      skip_indexing: true
+
   - name: readability_wikipedia_article_http
     url: https://en.wikipedia.org/wiki/Web_scraping
     backend: http
