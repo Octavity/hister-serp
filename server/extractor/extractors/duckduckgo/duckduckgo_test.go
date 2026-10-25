@@ -118,6 +118,61 @@ const reactResultPage = `<!doctype html>
 </body>
 </html>`
 
+// answerPage mirrors a result page after Search Assist generated an answer. The
+// answer container holds the answer paragraphs and, next to them, the source
+// chips, whose labels are link text rather than answer text. The chips are
+// spans, so reading the paragraphs alone keeps them out.
+const answerPage = `<!doctype html>
+<html class="js full-urls breadcrumb-urls react">
+<head><title>what could be the best thing to happen to humanity at DuckDuckGo</title></head>
+<body>
+  <div data-testid="mainline" data-area="mainline">
+    <ol class="react-results--main">
+      <li data-layout="ai">
+        <div>
+          <div data-testid="duckassist-answer-content" class="dyuE6BMumAPpqiH0dQVX">
+            <div>
+              <div class="qcramu8merKO3n5WPVV0">
+                <div class="space-y-4 whitespace-normal">
+                  <p>The best thing that could happen to humanity would be a collective realization that we are <span class="font-semibold" data-streamdown="strong">caretakers of the Earth</span>, leading to efforts to preserve life and promote biodiversity.</p>
+                </div>
+                <span class="r9A9FbwL91fnnJKgCCsi">
+                  <span class="Vfx795Sid9w2hY240SOs">
+                    <span><span tabindex="0">
+                      <a href="https://scienceforums.net/topic/135854/" rel="noopener" target="_self"><img src="//external-content.duckduckgo.com/ip3/scienceforums.net.ico"> <span><span><span>Science Forums</span></span></span></a>
+                    </span></span>
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+          <div>
+            <button data-testid="duckassist-stream-more-pill"><span>More</span></button>
+          </div>
+        </div>
+      </li>
+      <li data-layout="organic">
+        <article id="r1-0" data-testid="result" data-nrn="result">
+          <div>
+            <a href="https://hister.org/" data-testid="result-extras-url-link"><p><span>https://hister.org</span></p></a>
+          </div>
+          <div>
+            <h2><a href="https://hister.org/" rel="noopener" target="_self" data-testid="result-title-a"><span>Hister | Your Own Search Engine</span></a></h2>
+          </div>
+          <div>
+            <div data-result="snippet"><div><span><span><b>Hister</b> is a private, self hosted search engine.</span></span></div></div>
+          </div>
+        </article>
+      </li>
+    </ol>
+  </div>
+</body>
+</html>`
+
+const answerPageURL = "https://duckduckgo.com/?q=what+could+be+the+best+thing+to+happen+to+humanity&ia=web"
+
+const answerTextExpected = "The best thing that could happen to humanity would be a collective realization that we are caretakers of the Earth, leading to efforts to preserve life and promote biodiversity."
+
 // shellPage mirrors the HTML DuckDuckGo serves to a client that does not run
 // JavaScript: the body holds bootstrap scripts and a noscript redirect to the
 // non-JavaScript site, but no result. Readability and Basic both "succeed" on
@@ -388,13 +443,145 @@ func TestPreviewRendersResults(t *testing.T) {
 	}
 }
 
+func TestExtractDropsAnswerByDefault(t *testing.T) {
+	e := &DuckDuckGoExtractor{}
+	doc := &document.Document{URL: answerPageURL, HTML: answerPage}
+	if decision, err := e.Extract(doc).Unpack(); decision != sdk.ExtractorSuccess {
+		t.Fatalf("Extract decision = %v (%v), want success", decision, err)
+	}
+	if !doc.SkipIndexing {
+		t.Error("SkipIndexing is not set, the result page would be indexed")
+	}
+	if doc.Text != "" {
+		t.Errorf("Text = %q, want the answer dropped", doc.Text)
+	}
+	if got := doc.Metadata["type"]; got != nil {
+		t.Errorf("metadata type = %v, want no answer metadata", got)
+	}
+	if len(doc.ExtraDocuments) != 1 {
+		t.Fatalf("extra documents = %d, want 1", len(doc.ExtraDocuments))
+	}
+}
+
+func TestExtractKeepsAnswer(t *testing.T) {
+	e := &DuckDuckGoExtractor{}
+	if err := e.SetConfig(&sdk.Config{Enable: true, Options: map[string]any{keepAnswerOption: true}}); err != nil {
+		t.Fatalf("SetConfig rejected keep_answer: %v", err)
+	}
+	doc := &document.Document{URL: answerPageURL, HTML: answerPage}
+	if decision, err := e.Extract(doc).Unpack(); decision != sdk.ExtractorSuccess {
+		t.Fatalf("Extract decision = %v (%v), want success", decision, err)
+	}
+	if doc.SkipIndexing {
+		t.Error("SkipIndexing is set, the answer would be dropped")
+	}
+	if doc.Text != answerTextExpected {
+		t.Errorf("Text = %q, want the answer", doc.Text)
+	}
+	// The source chips sit next to the answer paragraphs; their labels are link
+	// text, not answer text.
+	if strings.Contains(doc.Text, "Science Forums") || strings.Contains(doc.Text, "More") {
+		t.Errorf("Text = %q, contains interface text", doc.Text)
+	}
+	if got := doc.Metadata["type"]; got != answerMetadataType {
+		t.Errorf("metadata type = %v, want %s", got, answerMetadataType)
+	}
+	if got := doc.Metadata["query"]; got != "what could be the best thing to happen to humanity" {
+		t.Errorf("metadata query = %v", got)
+	}
+	// The results are indexed either way.
+	if len(doc.ExtraDocuments) != 1 {
+		t.Fatalf("extra documents = %d, want 1", len(doc.ExtraDocuments))
+	}
+	if got := doc.ExtraDocuments[0].URL; got != "https://hister.org/" {
+		t.Errorf("extra URL = %q", got)
+	}
+}
+
+func TestPreviewRendersAnswer(t *testing.T) {
+	e := &DuckDuckGoExtractor{}
+	if err := e.SetConfig(&sdk.Config{Enable: true, Options: map[string]any{keepAnswerOption: true}}); err != nil {
+		t.Fatalf("SetConfig rejected keep_answer: %v", err)
+	}
+	response, decision, err := e.Preview(&document.Document{URL: answerPageURL, HTML: answerPage}).Unpack()
+	if decision != sdk.ExtractorSuccess {
+		t.Fatalf("Preview decision = %v (%v), want success", decision, err)
+	}
+	content := response.Content
+	if !strings.Contains(content, "caretakers of the Earth") {
+		t.Errorf("preview misses the answer: %q", content)
+	}
+	if !strings.Contains(content, `<a href="https://hister.org/">Hister | Your Own Search Engine</a>`) {
+		t.Errorf("preview misses the linked title: %q", content)
+	}
+	if strings.Contains(content, "Science Forums") {
+		t.Errorf("preview contains a source chip: %q", content)
+	}
+	if strings.Index(content, "caretakers of the Earth") > strings.Index(content, "<ol>") {
+		t.Errorf("preview renders the answer below the results: %q", content)
+	}
+}
+
+func TestExtractKeepsAnswerWithoutResults(t *testing.T) {
+	e := &DuckDuckGoExtractor{}
+	if err := e.SetConfig(&sdk.Config{Enable: true, Options: map[string]any{keepAnswerOption: true}}); err != nil {
+		t.Fatalf("SetConfig rejected keep_answer: %v", err)
+	}
+	// An answer page can carry no organic result; the answer is then the only
+	// content worth storing.
+	doc := &document.Document{
+		URL:  answerPageURL,
+		HTML: `<html><body><div data-testid="duckassist-answer-content"><p>An answer on its own.</p></div></body></html>`,
+	}
+	if decision, err := e.Extract(doc).Unpack(); decision != sdk.ExtractorSuccess {
+		t.Fatalf("Extract decision = %v (%v), want success", decision, err)
+	}
+	if doc.SkipIndexing {
+		t.Error("SkipIndexing is set, the answer would be dropped")
+	}
+	if doc.Text != "An answer on its own." {
+		t.Errorf("Text = %q", doc.Text)
+	}
+	if len(doc.ExtraDocuments) != 0 {
+		t.Errorf("extra documents = %d, want 0", len(doc.ExtraDocuments))
+	}
+}
+
+func TestExtractSkipsPageWithoutAnswerOrResults(t *testing.T) {
+	e := &DuckDuckGoExtractor{}
+	if err := e.SetConfig(&sdk.Config{Enable: true, Options: map[string]any{keepAnswerOption: true}}); err != nil {
+		t.Fatalf("SetConfig rejected keep_answer: %v", err)
+	}
+	// keep_answer must not keep the interface text of a page that has neither
+	// an answer nor a result.
+	doc := &document.Document{
+		URL:  "https://duckduckgo.com/?q=hister",
+		HTML: `<html><head><title>hister at DuckDuckGo</title></head><body><div>Search Settings</div></body></html>`,
+	}
+	if decision, _ := e.Extract(doc).Unpack(); decision != sdk.ExtractorFallback {
+		t.Fatalf("Extract decision = %v, want fallback", decision)
+	}
+	if !doc.SkipIndexing {
+		t.Error("SkipIndexing is not set, the interface text would be indexed")
+	}
+	if doc.Text != "" {
+		t.Errorf("Text = %q, want the page left untouched", doc.Text)
+	}
+}
+
 func TestSetConfig(t *testing.T) {
 	e := &DuckDuckGoExtractor{}
 	if got := e.GetConfig().Options["max_results"]; got != serputil.DefaultMaxResults {
 		t.Errorf("default max_results = %v, want %d", got, serputil.DefaultMaxResults)
 	}
+	if got := e.GetConfig().Options[keepAnswerOption]; got != false {
+		t.Errorf("default %s = %v, want false", keepAnswerOption, got)
+	}
 	if err := e.SetConfig(&sdk.Config{Enable: true, Options: map[string]any{"unknown": true}}); err == nil {
 		t.Fatal("SetConfig accepted an unknown option")
+	}
+	if err := e.SetConfig(&sdk.Config{Enable: true, Options: map[string]any{keepAnswerOption: "yes"}}); err == nil {
+		t.Fatal("SetConfig accepted a non-boolean keep_answer")
 	}
 	if err := e.SetConfig(&sdk.Config{Enable: true, Options: map[string]any{"max_results": 0}}); err == nil {
 		t.Fatal("SetConfig accepted max_results=0")

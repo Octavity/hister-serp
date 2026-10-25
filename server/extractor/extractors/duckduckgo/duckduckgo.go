@@ -3,6 +3,7 @@ package duckduckgo
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -15,6 +16,23 @@ import (
 
 const (
 	resultMetadataType = "duckduckgo_result"
+	answerMetadataType = "duckduckgo_answer"
+
+	// keepAnswerOption makes the extractor store the Search Assist answer as
+	// the search page's own document instead of dropping it with the page.
+	keepAnswerOption = "keep_answer"
+
+	// answerSelector matches the container DuckDuckGo fills with the generated
+	// Search Assist answer.
+	answerSelector = "[data-testid='duckassist-answer-content']"
+
+	// answerBlockSelector matches the elements that hold answer text. The
+	// source chips of the answer are plain spans, so they stay out of the text.
+	answerBlockSelector = "p, h2, h3, h4"
+
+	// noiseSelector matches elements whose text is markup or styling rather
+	// than content.
+	noiseSelector = "script, style, noscript, template"
 
 	// resultSelector matches the containers DuckDuckGo uses for search results
 	// across the JavaScript page and the HTML and Lite endpoints.
@@ -79,21 +97,68 @@ func (e *DuckDuckGoExtractor) Match(d *sdk.Document) bool {
 // result page itself out of the index. A page that yields no result, such as a
 // JavaScript shell, a consent screen, or an empty search, is skipped as well:
 // none of it is worth indexing as boilerplate.
+//
+// With the keep_answer option the generated Search Assist answer is stored as
+// the search page's own document, because it is the one part of the page whose
+// content is not available anywhere else.
 func (e *DuckDuckGoExtractor) Extract(d *sdk.Document) sdk.ExtractResult {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(d.HTML))
 	if err != nil {
 		return sdk.ExtractFallback(err)
 	}
-	// The result page is never a document of its own, so the flag covers both
-	// the parsed and the empty case.
-	d.SkipIndexing = true
+	query := searchQuery(doc, d.URL)
 	results := parseResults(doc, d.URL)
+	answer := ""
+	if e.keepAnswer() {
+		answer = answerText(doc)
+	}
+	if answer == "" {
+		// The result page is never a document of its own, so the flag covers
+		// both the parsed and the empty case.
+		d.SkipIndexing = true
+	} else {
+		d.SkipIndexing = false
+		d.Text = answer
+		if serputil.CleanText(d.Title) == "" {
+			d.Title = query
+		}
+		d.AddMetadata("type", answerMetadataType)
+		if query != "" {
+			d.AddMetadata("query", query)
+		}
+	}
 	if len(results) == 0 {
+		if answer != "" {
+			return sdk.Extracted()
+		}
 		return sdk.ExtractFallback(errors.New("no duckduckgo search results found"))
 	}
 	d.ExtraDocuments = append(d.ExtraDocuments,
-		serputil.Documents(results, d.UserID, resultMetadataType, searchQuery(doc, d.URL), e.maxResults())...)
+		serputil.Documents(results, d.UserID, resultMetadataType, query, e.maxResults())...)
 	return sdk.Extracted()
+}
+
+// answerText returns the text of the Search Assist answer on a result page.
+// The answer paragraphs are read on their own because the container also holds
+// the source chips, whose labels are not part of the answer.
+func answerText(doc *goquery.Document) string {
+	container := doc.Find(answerSelector).First()
+	if container.Length() == 0 {
+		return ""
+	}
+	clone := container.Clone()
+	clone.Find(noiseSelector).Remove()
+	var parts []string
+	clone.Find(answerBlockSelector).Each(func(_ int, block *goquery.Selection) {
+		if text := serputil.CleanText(block.Text()); text != "" {
+			parts = append(parts, text)
+		}
+	})
+	if len(parts) > 0 {
+		return strings.Join(parts, "\n\n")
+	}
+	// Markup variants without paragraphs keep the whole answer container.
+	return serputil.CleanText(clone.Text())
 }
 
 // Preview renders the parsed results instead of the raw result page.
@@ -102,26 +167,54 @@ func (e *DuckDuckGoExtractor) Preview(d *sdk.Document) sdk.PreviewResult {
 	if err != nil {
 		return sdk.PreviewFallback(err)
 	}
-	results := parseResults(doc, d.URL)
-	if len(results) == 0 {
-		return sdk.PreviewFallback(errors.New("no duckduckgo search results found"))
+	answer := ""
+	if e.keepAnswer() {
+		answer = answerText(doc)
 	}
-	return serputil.Preview("DuckDuckGo", searchQuery(doc, d.URL), serputil.Limit(results, e.maxResults()))
+	results := serputil.Limit(parseResults(doc, d.URL), e.maxResults())
+	return serputil.PreviewWithAnswer("DuckDuckGo", searchQuery(doc, d.URL), answer, results)
 }
 
 func (e *DuckDuckGoExtractor) GetConfig() *sdk.Config {
 	if e.cfg != nil {
 		return e.cfg
 	}
-	return &sdk.Config{Enable: true, Options: map[string]any{"max_results": serputil.DefaultMaxResults}}
+	return &sdk.Config{Enable: true, Options: map[string]any{
+		"max_results":    serputil.DefaultMaxResults,
+		keepAnswerOption: false,
+	}}
 }
 
 func (e *DuckDuckGoExtractor) SetConfig(config *sdk.Config) error {
-	if err := serputil.ValidateOptions(config.Options); err != nil {
+	if err := serputil.ValidateOptions(config.Options, keepAnswerOption); err != nil {
+		return err
+	}
+	if _, err := keepAnswerValue(config.Options); err != nil {
 		return err
 	}
 	e.cfg = config
 	return nil
+}
+
+func (e *DuckDuckGoExtractor) keepAnswer() bool {
+	keep, err := keepAnswerValue(e.GetConfig().Options)
+	if err != nil {
+		return false
+	}
+	return keep
+}
+
+// keepAnswerValue returns the keep_answer option, false when it is absent.
+func keepAnswerValue(options map[string]any) (bool, error) {
+	value, ok := options[keepAnswerOption]
+	if !ok {
+		return false, nil
+	}
+	keep, ok := value.(bool)
+	if !ok {
+		return false, fmt.Errorf("%s must be a boolean", keepAnswerOption)
+	}
+	return keep, nil
 }
 
 func (e *DuckDuckGoExtractor) maxResults() int {

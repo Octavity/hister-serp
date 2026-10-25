@@ -409,6 +409,10 @@ JavaScript shell, a consent screen, or an empty search, is dropped instead of
 being stored as boilerplate. A result that points to an already indexed page
 keeps the richer existing document.
 
+The generated Search Assist answer is dropped with the page by default, because
+it only exists after the page has been asked to generate one. The opt-in
+`keep_answer` option stores it instead, as the search page's own document.
+
 **Matches:** search pages of `duckduckgo.com`, `www.duckduckgo.com`,
 `html.duckduckgo.com`, `lite.duckduckgo.com`, `noai.duckduckgo.com`, and
 `start.duckduckgo.com` that carry a `q` parameter.
@@ -430,6 +434,13 @@ crawling, which is why the live test uses the dedicated host.
 
 - `max_results` (int, default `20`): maximum number of results recorded per
   search page.
+- `keep_answer` (bool, default `false`): store the generated Search Assist
+  answer as the search page's own document. Unlike the interface around it, the
+  answer does not exist anywhere else, so it can be worth keeping. Only pages
+  that carry an answer are stored this way; a page without one is still dropped.
+  The answer text is stored without the source chips, which the page keeps next
+  to it, and the page is marked with `type: duckduckgo_answer` and the search
+  `query` metadata.
 
 ### `readability`
 
