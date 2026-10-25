@@ -118,6 +118,32 @@ const reactResultPage = `<!doctype html>
 </body>
 </html>`
 
+// shellPage mirrors the HTML DuckDuckGo serves to a client that does not run
+// JavaScript: the body holds bootstrap scripts and a noscript redirect to the
+// non-JavaScript site, but no result. Readability and Basic both "succeed" on
+// this markup with a ten character document, which is why the result page has to
+// be dropped instead of being handed to a generic extractor. The redirect target
+// is disallowed by the robots.txt of this host, so a crawler cannot recover the
+// results from it either.
+const shellPage = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>what could be the best thing to happen to humanity? at DuckDuckGo</title>
+  <script src="/dist/wpm.duckassist-ia.d72a90dc5e54b2aeffa7.js"></script>
+</head>
+<body>
+  <noscript>
+    <meta http-equiv="refresh" content="0;URL=/html?q=what%20could%20be%20the%20best%20thing%20to%20happen%20to%20humanity%3F">
+    <div class="msg msg--noscript">
+      <p class="msg-title--noscript">You are being redirected to the non-JavaScript site.</p>
+      Click <a href="/html/?q=what%20could%20be%20the%20best%20thing%20to%20happen%20to%20humanity%3F">here</a> if it doesn't happen automatically.
+    </div>
+  </noscript>
+  <script>window.__DDG = {};</script>
+</body>
+</html>`
+
 func TestMatch(t *testing.T) {
 	e := &DuckDuckGoExtractor{}
 	tests := []struct {
@@ -311,6 +337,32 @@ func TestExtractWithoutResultsFallsBack(t *testing.T) {
 	}
 	if len(doc.ExtraDocuments) != 0 {
 		t.Errorf("extra documents = %d, want 0", len(doc.ExtraDocuments))
+	}
+	if _, decision, _ := e.Preview(doc).Unpack(); decision != sdk.ExtractorFallback {
+		t.Fatalf("Preview decision = %v, want fallback", decision)
+	}
+}
+
+func TestExtractJavaScriptShellIsSkipped(t *testing.T) {
+	e := &DuckDuckGoExtractor{}
+	doc := &document.Document{
+		URL:  "https://duckduckgo.com/?q=what+could+be+the+best+thing+to+happen+to+humanity",
+		HTML: shellPage,
+	}
+	if !e.Match(doc) {
+		t.Fatal("shell page is not matched, a generic extractor would store it")
+	}
+	if decision, _ := e.Extract(doc).Unpack(); decision != sdk.ExtractorFallback {
+		t.Fatalf("Extract decision = %v, want fallback", decision)
+	}
+	if !doc.SkipIndexing {
+		t.Error("SkipIndexing is not set, the shell would be stored as an empty document")
+	}
+	if len(doc.ExtraDocuments) != 0 {
+		t.Errorf("extra documents = %d, want 0", len(doc.ExtraDocuments))
+	}
+	if doc.Text != "" {
+		t.Errorf("Text = %q, want the shell left untouched", doc.Text)
 	}
 	if _, decision, _ := e.Preview(doc).Unpack(); decision != sdk.ExtractorFallback {
 		t.Fatalf("Preview decision = %v, want fallback", decision)
